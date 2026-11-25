@@ -18,8 +18,8 @@ npm run test:erp
 ## Architecture
 - **Frontend**: React 19 + TypeScript + Tailwind CSS + Recharts + SheetJS (`xlsx`) + `jsPDF`
 - **Live Server & API**: Express + TypeScript (`server.ts`, `server/`) with `better-sqlite3` WAL persistence (`./data/lubricants_erp.db`)
-- **Python FastAPI / SQLAlchemy / Alembic Mirror**: `backend/` + `scripts/migrate_sqlite_to_postgres.py` for standalone Python & PostgreSQL server deployments
+- **Python FastAPI / SQLAlchemy / Alembic prototype**: `backend/` + `scripts/migrate_sqlite_to_postgres.py`; this is a partial mirror, not a replacement for the Express API
 - **Documentation**: `docs/DEPLOYMENT_AND_MIGRATION.md`
 
 ## Hosting and Database Notes
-The included `vercel.json` deploys the Vite frontend. The Express API and durable database still need a separate host; Vercel's filesystem is not suitable for the current SQLite database or uploads. See [`docs/VERCEL_AND_DATABASE_OPTIONS.md`](docs/VERCEL_AND_DATABASE_OPTIONS.md) before using this with real business data.
+The included `vercel.json` builds the Vite frontend only. The current Express API uses SQLite and local disk uploads, so it is not ready to run as a Vercel serverless API or as a multi-user live ERP. The current Python/PostgreSQL code is a partial prototype. Firebase SQL Connect/PostgreSQL is not a drop-in `DATABASE_URL` change. See [`docs/VERCEL_AND_DATABASE_OPTIONS.md`](docs/VERCEL_AND_DATABASE_OPTIONS.md) before deploying.
