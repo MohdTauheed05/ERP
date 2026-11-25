@@ -1,28 +1,35 @@
-# Vercel and database deployment notes
+# Vercel, Firebase SQL Connect, and database switching
 
-## Current project architecture
+## Current state
 
-- Vercel can host the Vite frontend as a static site (`vercel.json` builds `dist`).
-- The Express API in `server.ts` is a separate long-running service. It currently uses `better-sqlite3` and stores uploaded files on the server filesystem.
-- The Vite frontend reads `VITE_API_BASE_URL` at build time. Leave it empty for a same-origin deployment; for separate hosting, set it to the API origin with no trailing slash. Set the API's `CORS_ORIGINS` to the exact Vercel production URL and any preview URLs that should be allowed.
-- Keep Firebase Admin credentials, database URLs, and JWT secrets in the API host's private environment settings. Never put them in a `VITE_` variable.
+- GitHub repository: [`MohdTauheed05/ERP`](https://github.com/MohdTauheed05/ERP), branch `main`.
+- Firebase test project: `petroblend-erp-test` (Spark plan).
+- Vercel can build the Vite frontend from the repository root using `vercel.json`.
+- The Express API in `server.ts` uses synchronous `better-sqlite3`, initializes a local SQLite file, and writes uploads to the local filesystem. It cannot currently use PostgreSQL or Firebase SQL Connect. The Python FastAPI/PostgreSQL code is only a partial mirror, not the complete ERP API.
+- `DATABASE_URL` currently accepts `sqlite:///...` only. A PostgreSQL URL now fails at startup instead of silently creating/using a different local SQLite database.
 
-## Free tier versus production
+## Firebase SQL Connect Spark limitation
 
-There is no zero-cost, no-code deployment for this repository as it stands. The SQLite database and uploads cannot live safely on a serverless or ephemeral filesystem. A free web-service tier can be useful for a demo, but the storage and sleep limitations make it unsuitable for the live ERP database.
+The Firebase console project is on Spark ($0/month), but its SQL Connect setup flow reports that its single no-cost Cloud SQL trial has already been initiated. Do not switch to Blaze simply to get past that screen unless paid billing has been explicitly planned. If SQL Connect becomes available in a fresh eligible project, Firebase documents the Spark trial as 90 days, one database per project, about 8,000 operations/day and 330 MiB/day egress; the instance is archived after the trial unless the project is upgraded. See [Firebase SQL Connect pricing](https://firebase.google.com/docs/sql-connect/pricing).
 
-Firebase Cloud Firestore is a document database, while the current API expects relational SQL tables, constraints, joins, and transactions. Switching to Firestore would require rewriting the API data layer and validating the ERP workflows.
+Firestore is a separate NoSQL product and does not make the existing relational Express API compatible without a significant rewrite.
 
-Firebase SQL Connect uses managed PostgreSQL, so its data model is closer to this project. Its Spark-plan database is a 90-day no-cost trial; afterwards the instance is archived unless the Firebase project is upgraded. The existing TypeScript API still uses SQLite, and the Python PostgreSQL backend is only a partial mirror, so SQL Connect is not a drop-in setting.
+## Vercel deployment
 
-For a short free proof-of-concept, deploy the frontend to Vercel and keep the backend/database on a temporary test setup. Do not enter real company, employee, customer, inventory, or accounting data until the API and durable database are deployed and backup/restore is confirmed. For ongoing use, expect to use a paid always-on API host and durable relational database, or budget time for a database migration and its verification.
+Vercel's Git import screen recognizes this repository as Vite and defaults to the repository root (`./`). A frontend build/deployment alone is not a live ERP: API login, business operations, persistence, and uploads require a working backend. Do not add the API URL as `VITE_API_BASE_URL` until the API is deployed to a durable host and its exact HTTPS origin is known. Never put database URLs, Firebase Admin credentials, or JWT secrets in a `VITE_` variable.
 
-## GitHub and Vercel setup
+For a production deployment, the frontend and API may be hosted separately:
 
-1. Create a private GitHub repository and upload the contents of this project folder. The `.gitignore` excludes local databases, uploads, backups, and environment files.
-2. In Vercel, import that GitHub repository. Keep the project root at the folder containing `package.json`; `vercel.json` selects Vite, runs `npm run build`, and publishes `dist`.
-3. Deploy the API separately. Configure `PORT`, `NODE_ENV=production`, a long random `JWT_SECRET`, `ADMIN_INITIAL_PASSWORD` if desired, `CORS_ORIGINS`, and a durable database/storage solution on that host.
-4. Add `VITE_API_BASE_URL` to the Vercel project's Production (and Preview if needed) environment variables, set it to the API's HTTPS origin, then redeploy. Vite environment variables are embedded during the build.
-5. Open the deployed health endpoint `/api/health`, complete first-admin setup, and verify login, document creation, uploads, exports, and backup/restore before putting real data in the system.
+1. Deploy the frontend from this repository root on Vercel.
+2. Deploy the complete Express API to a persistent Node.js host, with durable PostgreSQL and object storage for uploads.
+3. Configure the API host's `JWT_SECRET`, `DATABASE_URL`, `UPLOAD_DIR` or storage provider, `BACKUP_DIR`, `PORT`, and exact `CORS_ORIGINS` as private environment settings.
+4. Set `VITE_API_BASE_URL` in Vercel to the API's HTTPS origin, then redeploy the frontend.
+5. Verify health, first-admin setup, login, CRUD workflows, uploads/downloads, accounting totals, and backup/restore before using real company data.
 
-Do not treat a successful Vercel frontend build as proof that the ERP is live: the API and durable storage must also be available.
+## Keep future database changes simple
+
+The intended application-facing interface should be a small database adapter selected from server-side configuration, with one migration set and a common test suite. A future PostgreSQL move should use a standard `DATABASE_URL=postgresql://...` and a PostgreSQL adapter so a company-hosted PostgreSQL server can be selected by changing private server configuration and running migrations.
+
+That adapter is not implemented yet. The current API has hundreds of synchronous SQLite queries and SQLite-specific schema/backup code; a safe PostgreSQL or Firebase SQL Connect migration requires converting those calls and verifying all ERP workflows. Firebase SQL Connect also uses its generated SQL Connect operation model rather than acting as a transparent replacement for `better-sqlite3`. Do not point the current API at a PostgreSQL URL and assume it has migrated.
+
+Uploads and database backups must move to storage with durable retention when the API leaves the local machine. Vercel function filesystems are ephemeral and cannot serve as the ERP's durable database or upload store.
