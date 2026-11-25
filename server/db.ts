@@ -9,7 +9,9 @@ function resolveSqlitePath(): string {
     const raw = dbUrl.replace('sqlite:///', '');
     return path.resolve(process.cwd(), raw);
   }
-  return path.resolve(process.cwd(), 'data/lubricants_erp.db');
+  throw new Error(
+    'Unsupported DATABASE_URL. The Express ERP API currently supports SQLite only; PostgreSQL/Firebase SQL Connect support is not implemented. Refusing to silently start with a new local SQLite database.'
+  );
 }
 
 export const DB_FILE_PATH = resolveSqlitePath();
