@@ -1,0 +1,36 @@
+services:
+  erp-web:
+    build: .
+    container_name: petroblend-erp
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=sqlite:///./data/lubricants_erp.db
+      - UPLOAD_DIR=/app/uploads
+      - BACKUP_DIR=/app/backups
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production-64-chars}
+    volumes:
+      - erp_data:/app/data
+      - erp_uploads:/app/uploads
+      - erp_backups:/app/backups
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: petroblend-postgres
+    environment:
+      - POSTGRES_DB=lubricants_erp
+      - POSTGRES_USER=erp_user
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change_me_pg_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  erp_data:
+  erp_uploads:
+  erp_backups:
+  pg_data:

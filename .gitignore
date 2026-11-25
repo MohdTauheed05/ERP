@@ -1,4 +1,3 @@
-Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 node_modules/
 build/
 dist/
@@ -12,4 +11,7 @@ coverage/
 /backups/
 .vercel/
 .firebase/
-
+.aistudio/
+public/assets/aistudio/
+__pycache__/
+.venv/

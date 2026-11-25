@@ -1,0 +1,6 @@
+{
+  "name": "PetroBlend Enterprise ERP",
+  "description": "Enterprise Lubricants Manufacturing, Blending, Procurement, Inventory, Quality, Sales and Double-Entry Accounting ERP",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
