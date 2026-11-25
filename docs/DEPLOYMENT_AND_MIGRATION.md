@@ -17,10 +17,14 @@
 - Uploaded attachments: `./uploads/` (path-confined, MIME-allowlisted).
 - Atomic backups: `./backups/` (created via SQLite online `.backup()` API from **Admin, RBAC & Backups -> Backup & Migration**).
 
-## 3. Migrating from Local SQLite to Dedicated PostgreSQL Server
-1. Provision PostgreSQL 16 (or run `docker compose up -d postgres`).
-2. Initialize the schema on PostgreSQL using Alembic (`backend/migrations`) or export the full normalized JSON bundle from **Admin -> Backup & Migration -> Export PostgreSQL Bundle**.
-3. Run the Python migration script preserving all tables, foreign keys, document numbering sequences, and attachment paths:
+## 3. PostgreSQL migration status and path
+The current Express API still supports SQLite only. It contains synchronous `better-sqlite3` calls and SQLite-specific schema, backup, and integrity-check code. The `backend/` FastAPI/Alembic project and migration script are a partial prototype; they do not provide a drop-in PostgreSQL runtime for all Express routes. Setting `DATABASE_URL` to PostgreSQL currently fails at startup intentionally.
+
+A complete PostgreSQL rollout requires a migration of the full Express data layer, schema and data migrations, durable upload storage, and verification of all ERP workflows. After that work is implemented, the planned operator switch should be a private server-side `DATABASE_URL=postgresql://...` setting plus migrations. Do not use the following prototype steps as proof of a production-ready migration:
+
+1. Provision PostgreSQL 16 (or run `docker compose up -d postgres`) for development.
+2. Review and complete the schema in `backend/migrations` and the Python API before relying on it.
+3. The current migration script can be used as a starting point only:
    ```bash
    pip install -r backend/requirements.txt
    python -m alembic -c backend/alembic.ini upgrade head
@@ -28,7 +32,7 @@
      --sqlite ./data/lubricants_erp.db \
      --postgres postgresql://erp_user:your_password@your-server:5432/lubricants_erp
    ```
-4. Update `.env` with `DATABASE_URL=postgresql://...` and restart the server.
+4. Do not point the Express API at PostgreSQL until its PostgreSQL adapter has been implemented and validated.
 
 ## 4. Backup & Disaster Recovery
 - Always create a snapshot in **Admin -> Backup & Migration -> Create Backup Snapshot** before bulk imports or schema upgrades.
