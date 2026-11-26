@@ -9,7 +9,7 @@
 
 ## Deployment architecture
 
-The React/Vite UI is static on Vercel. The existing Express API is exposed as a Vercel Node function at `/api/[...path]`. Locally, the same Express routes continue to use SQLite. For hosted use, choose PostgreSQL using `DB_ADAPTER=cloudsql`; the adapter keeps current synchronous database call sites while connecting to the Cloud SQL PostgreSQL instance behind SQL Connect.
+The React/Vite UI is static on Vercel. Vercel Node function entrypoints under `/api` route one through four path segments into the existing Express API. Locally, the same Express routes continue to use SQLite. For hosted use, choose PostgreSQL using `DB_ADAPTER=cloudsql`; the adapter keeps current synchronous database call sites while connecting to the Cloud SQL PostgreSQL instance behind SQL Connect.
 
 This is direct PostgreSQL access to SQL Connect's Cloud SQL database; it does not use SQL Connect generated GraphQL operations or SDKs. The ERP schema is created by the existing server schema initializer. The direct connection needs a service account with Cloud SQL client access and the SQL Connect PostgreSQL `owner` role so first-run schema creation and app seeding can run. The app's first-admin setup is available only after `/api/auth/status` can connect and initialize the database. There is no default username or password.
 
@@ -70,3 +70,4 @@ Firebase documents the Spark SQL Connect Cloud SQL instance as a 90-day no-cost 
 - Local SQLite end-to-end workflow suite: 12 workflows passed after the hosted API and binary-storage changes.
 - TypeScript check and Vite production build: passed.
 - Vercel API bundle and live Firebase PostgreSQL access: not yet verified. Those checks require the one-time Workload Identity and SQL role setup above.
+
