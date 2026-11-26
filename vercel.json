@@ -3,11 +3,12 @@
   "framework": "vite",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
-  "regions": ["dxb1"],
+  "regions": [
+    "iad1"
+  ],
   "functions": {
     "api/**/*.ts": {
       "maxDuration": 60
     }
   }
 }
-
