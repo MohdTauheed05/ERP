@@ -1,7 +1,11 @@
+Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { nowISO, todayISO } from './utils/helpers.ts';
+import { createPostgresSyncDatabase } from './postgres-sync.ts';
+
+export const USE_POSTGRES = process.env.DB_ADAPTER === 'postgres' || process.env.DB_ADAPTER === 'cloudsql' || /^postgres(ql)?:\/\//i.test(process.env.DATABASE_URL || '');
 
 function resolveSqlitePath(): string {
   const dbUrl = process.env.DATABASE_URL || 'sqlite:///./data/lubricants_erp.db';
@@ -10,17 +14,47 @@ function resolveSqlitePath(): string {
     return path.resolve(process.cwd(), raw);
   }
   throw new Error(
-    'Unsupported DATABASE_URL. The Express ERP API currently supports SQLite only; PostgreSQL/Firebase SQL Connect support is not implemented. Refusing to silently start with a new local SQLite database.'
+    'Unsupported DATABASE_URL. Use sqlite:///... for local SQLite or postgresql://... with DB_ADAPTER=postgres.'
   );
 }
 
-export const DB_FILE_PATH = resolveSqlitePath();
-export const UPLOAD_DIR = path.resolve(process.cwd(), process.env.UPLOAD_DIR || './uploads');
+export const DB_FILE_PATH = USE_POSTGRES ? '' : resolveSqlitePath();
+export const UPLOAD_DIR = path.resolve(process.cwd(), process.env.UPLOAD_DIR || (process.env.VERCEL ? '/tmp/petroblend-uploads' : './uploads'));
 
 let dbInstance: Database.Database | null = null;
 
 export function getDb(): Database.Database {
   if (!dbInstance) {
+    if (USE_POSTGRES) {
+      const pgDb = createPostgresSyncDatabase();
+      dbInstance = pgDb as Database.Database;
+      try {
+        const schemaState = () => {
+          const table = pgDb.prepare("SELECT to_regclass('public.schema_migrations') AS schema_table").get() as { schema_table: string | null } | undefined;
+          if (!table?.schema_table) return false;
+          const count = (pgDb.prepare('SELECT COUNT(*) AS c FROM schema_migrations').get() as { c: number }).c;
+          return count > 0;
+        };
+        if (!schemaState()) {
+          pgDb.exec('SELECT pg_advisory_lock(624830211)');
+          try {
+            const afterLock = schemaState();
+            if (!afterLock) {
+              initializeSchema(dbInstance);
+              seedReferenceData(dbInstance);
+            }
+          } finally {
+            pgDb.exec('SELECT pg_advisory_unlock(624830211)');
+          }
+        }
+      } catch (err) {
+        pgDb.close();
+        dbInstance = null;
+        throw err;
+      }
+      return dbInstance;
+    }
+
     fs.mkdirSync(path.dirname(DB_FILE_PATH), { recursive: true });
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
     fs.mkdirSync(path.resolve(process.cwd(), process.env.BACKUP_DIR || './backups'), { recursive: true });
@@ -61,6 +95,8 @@ function initializeSchema(db: Database.Database): void {
       name TEXT NOT NULL,
       short_name TEXT DEFAULT '',
       logo_path TEXT DEFAULT '',
+      logo_blob BLOB,
+      logo_mime_type TEXT DEFAULT '',
       address TEXT DEFAULT '',
       po_box TEXT DEFAULT '',
       country TEXT DEFAULT 'United Arab Emirates',
@@ -190,6 +226,7 @@ function initializeSchema(db: Database.Database): void {
       stored_name TEXT NOT NULL,
       mime_type TEXT NOT NULL,
       size_bytes INTEGER NOT NULL,
+      data_blob BLOB,
       uploaded_by INTEGER REFERENCES users(id),
       created_at TEXT NOT NULL
     );
@@ -1525,6 +1562,9 @@ function initializeSchema(db: Database.Database): void {
 
   ensureColumn('companies', 'short_name', "TEXT DEFAULT ''");
   ensureColumn('companies', 'po_box', "TEXT DEFAULT ''");
+  ensureColumn('companies', 'logo_blob', 'BLOB');
+  ensureColumn('companies', 'logo_mime_type', "TEXT DEFAULT ''");
+  ensureColumn('attachments', 'data_blob', 'BLOB');
   ensureColumn('item_categories', 'group_code', "TEXT DEFAULT ''");
   ensureColumn('item_categories', 'parent_id', 'INTEGER REFERENCES item_categories(id)');
   ensureColumn('item_categories', 'is_group', 'INTEGER NOT NULL DEFAULT 1');

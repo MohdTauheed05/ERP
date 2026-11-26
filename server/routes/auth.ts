@@ -1,9 +1,10 @@
+Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
-import { UPLOAD_DIR, getDb, withTransaction } from '../db.ts';
-import { authenticate, recordAuditLog, signToken, type AuthRequest } from '../middleware/auth.ts';
+import { UPLOAD_DIR, getDb, USE_POSTGRES, withTransaction } from '../db.ts';
+import { authenticate, getJwtSecret, recordAuditLog, signToken, type AuthRequest } from '../middleware/auth.ts';
 import { nowISO, safeResolveWithin, todayISO } from '../utils/helpers.ts';
 import { postStockMovement } from '../services/inventory.ts';
 import { postJournalEntry } from '../services/accounting.ts';
@@ -16,7 +17,7 @@ router.get('/status', (_req, res) => {
   const count = (db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c;
   const company = db
     .prepare(
-      'SELECT id, name, short_name, logo_path, address, po_box, country, trn, telephone, email, website, currency, vat_rate, vat_enabled FROM companies LIMIT 1'
+      'SELECT id, name, short_name, logo_path, logo_blob, logo_mime_type, address, po_box, country, trn, telephone, email, website, currency, vat_rate, vat_enabled FROM companies LIMIT 1'
     )
     .get() as Record<string, unknown> | undefined;
 
@@ -34,10 +35,16 @@ router.get('/status', (_req, res) => {
 
 router.get('/logo', (_req, res) => {
   const db = getDb();
-  const row = db.prepare('SELECT logo_path FROM companies LIMIT 1').get() as { logo_path?: string } | undefined;
+  const row = db.prepare('SELECT logo_path, logo_blob, logo_mime_type FROM companies LIMIT 1').get() as { logo_path?: string; logo_blob?: Buffer | null; logo_mime_type?: string } | undefined;
   const fileName = row?.logo_path ? path.basename(String(row.logo_path)) : '';
   if (!fileName) {
     res.status(404).end();
+    return;
+  }
+  if (row?.logo_blob) {
+    res.setHeader('Content-Type', row.logo_mime_type || 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.send(row.logo_blob);
     return;
   }
   try {
@@ -69,9 +76,16 @@ router.post('/setup-admin', (req, res) => {
     res.status(400).json({ error: 'Password must be at least 8 characters' });
     return;
   }
+  try {
+    getJwtSecret();
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Production JWT configuration is missing' });
+    return;
+  }
 
   try {
     const result = withTransaction((db) => {
+      if (USE_POSTGRES) db.prepare('SELECT pg_advisory_xact_lock(624830212)').get();
       const existing = (db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c;
       if (existing > 0) {
         throw new Error('Administrator account already initialized. Please sign in.');

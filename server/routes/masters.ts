@@ -1,3 +1,4 @@
+Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
@@ -122,17 +123,13 @@ router.post('/company/logo', requirePermission('settings', 'can_edit'), logoUplo
     };
     const ext = extMap[req.file.mimetype.toLowerCase()] || '.png';
     const fileName = `company-logo-${Date.now()}${ext}`;
-    fs.mkdirSync(BRANDING_DIR, { recursive: true });
-    const targetPath = safeResolveWithin(BRANDING_DIR, fileName);
-    fs.writeFileSync(targetPath, req.file.buffer);
-
     const existing = getDb().prepare('SELECT logo_path FROM companies LIMIT 1').get() as { logo_path?: string } | undefined;
     if (existing?.logo_path && existing.logo_path !== fileName) {
       removeBrandingFile(existing.logo_path);
     }
 
     withTransaction((db) => {
-      db.prepare('UPDATE companies SET logo_path = ?, updated_at = ? WHERE id = (SELECT id FROM companies LIMIT 1)').run(fileName, nowISO());
+      db.prepare('UPDATE companies SET logo_path = ?, logo_blob = ?, logo_mime_type = ?, updated_at = ? WHERE id = (SELECT id FROM companies LIMIT 1)').run(fileName, req.file!.buffer, req.file!.mimetype, nowISO());
       recordAuditLog(db, req.user, 'Company', 1, fileName, 'Upload Company Logo', { fileName, size: req.file!.size });
     });
 
@@ -151,7 +148,7 @@ router.delete('/company/logo', requirePermission('settings', 'can_edit'), (req: 
     const existing = getDb().prepare('SELECT logo_path FROM companies LIMIT 1').get() as { logo_path?: string } | undefined;
     removeBrandingFile(existing?.logo_path);
     withTransaction((db) => {
-      db.prepare("UPDATE companies SET logo_path = '', updated_at = ? WHERE id = (SELECT id FROM companies LIMIT 1)").run(nowISO());
+      db.prepare("UPDATE companies SET logo_path = '', logo_blob = NULL, logo_mime_type = '', updated_at = ? WHERE id = (SELECT id FROM companies LIMIT 1)").run(nowISO());
       recordAuditLog(db, req.user, 'Company', 1, 'Logo', 'Remove Company Logo', {});
     });
     res.json({ ok: true });

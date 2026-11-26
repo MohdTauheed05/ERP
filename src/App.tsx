@@ -1,3 +1,4 @@
+Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import React, { useEffect, useState } from 'react';
 import {
   Bell,
@@ -49,8 +50,9 @@ const NAV_ITEMS: { id: ModuleKey; permModule: string; label: string; icon: React
 ];
 
 export function App() {
-  const { company, logoUrl, needsSetup, bootLoaded, setNeedsSetup } = useCompany();
+  const { company, logoUrl, needsSetup, bootLoaded, bootError, setNeedsSetup, refreshCompany } = useCompany();
   const [user, setUser] = useState<User | null>(null);
+  const [retryingConnection, setRetryingConnection] = useState(false);
   const [permissions, setPermissions] = useState<RolePermission[]>([]);
   const [activeModule, setActiveModule] = useState<ModuleKey>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -118,6 +120,36 @@ export function App() {
       <div className="min-h-screen bg-slate-900 text-slate-200 flex items-center justify-center text-sm font-medium">
         Initializing Enterprise ERP...
       </div>
+    );
+  }
+
+  if (bootError) {
+    return (
+      <main className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
+        <section className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-8 shadow-sm" role="alert">
+          <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">Connection problem</p>
+          <h1 className="mt-2 text-xl font-semibold text-slate-900">ERP server unavailable</h1>
+          <p className="mt-3 text-sm leading-relaxed text-slate-600">
+            The app cannot reach its API and database, so sign-in and first-admin setup are unavailable. Try again after the server connection is restored.
+          </p>
+          <p className="mt-3 rounded bg-slate-50 px-3 py-2 font-mono text-xs text-slate-600">{bootError}</p>
+          <button
+            type="button"
+            disabled={retryingConnection}
+            onClick={async () => {
+              setRetryingConnection(true);
+              try {
+                await refreshCompany();
+              } finally {
+                setRetryingConnection(false);
+              }
+            }}
+            className="mt-5 w-full rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
+          >
+            {retryingConnection ? 'Checking connection…' : 'Retry connection'}
+          </button>
+        </section>
+      </main>
     );
   }
 

@@ -1,5 +1,11 @@
+Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 {
   "framework": "vite",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist"
+  "buildCommand": "pnpm build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/[...path].ts": {
+      "maxDuration": 60
+    }
+  }
 }
