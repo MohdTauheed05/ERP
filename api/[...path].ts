@@ -1,7 +1,5 @@
 import type { Request, Response } from 'express';
-import { createApp } from '../server/app.ts';
-
-const app = createApp();
+import { handleVercelRequest } from '../server/vercel-handler.ts';
 
 export const config = {
   api: { bodyParser: false },
@@ -10,6 +8,6 @@ export const config = {
 export const maxDuration = 60;
 
 export default function handler(req: Request, res: Response): void {
-  app(req, res);
+  handleVercelRequest(req, res);
 }
 
