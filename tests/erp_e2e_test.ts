@@ -1,4 +1,3 @@
-Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';

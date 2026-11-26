@@ -1,4 +1,3 @@
-Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';

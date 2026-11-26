@@ -1,4 +1,3 @@
-Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import { Worker } from 'node:worker_threads';
 // Keep worker dependencies visible to the Vercel function bundler and its file tracer.
 import 'pg';

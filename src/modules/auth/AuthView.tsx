@@ -1,4 +1,3 @@
-Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import React, { useState } from 'react';
 import { ShieldCheck, Lock, UserPlus } from 'lucide-react';
 import { apiRequest, setAuthToken } from '../../services/api';

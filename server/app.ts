@@ -1,4 +1,3 @@
-Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import express, { type Express } from 'express';
 import { getDb } from './db.ts';
 import { setPostgresOidcToken } from './postgres-sync.ts';

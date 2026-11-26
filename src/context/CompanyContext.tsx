@@ -1,4 +1,3 @@
-Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { apiRequest, apiUrl } from '../services/api';
 import type { CompanyProfile } from '../types/erp';
