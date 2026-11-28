@@ -237,8 +237,8 @@ export function postStockMovement(db: Database.Database, params: StockMovementPa
       .prepare(
         `SELECT id, batch_number, available_qty FROM stock_batches
          WHERE item_id = ? AND warehouse_id = ? AND available_qty > 0 AND is_on_hold = 0
-           AND (? IS NULL OR tank_id = ? OR tank_id IS NULL)
-         ORDER BY CASE WHEN ? IS NOT NULL AND tank_id = ? THEN 0 ELSE 1 END, id ASC`
+           AND (CAST(? AS BIGINT) IS NULL OR tank_id = ? OR tank_id IS NULL)
+         ORDER BY CASE WHEN CAST(? AS BIGINT) IS NOT NULL AND tank_id = ? THEN 0 ELSE 1 END, id ASC`
       )
       .all(params.itemId, params.warehouseId, tankId, tankId, tankId, tankId) as { id: number; batch_number: string; available_qty: number }[];
     for (const b of batches) {
