@@ -1,10 +1,11 @@
+Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
   "regions": [
-    "iad1"
+    "fra1"
   ],
   "functions": {
     "api/**/*.ts": {
@@ -12,3 +13,4 @@
     }
   }
 }
+
