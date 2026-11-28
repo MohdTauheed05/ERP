@@ -1,4 +1,6 @@
+Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 import React, { useMemo, useRef, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Search, X } from 'lucide-react';
 
 export interface SelectOption {
@@ -29,17 +31,55 @@ export function SearchableSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const updateDropdownPosition = () => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const gap = 4;
+    const maxHeight = 280;
+    const below = window.innerHeight - rect.bottom - gap;
+    const above = rect.top - gap;
+    const placeAbove = below < 180 && above > below;
+    const availableHeight = Math.max(120, Math.min(maxHeight, placeAbove ? above : below));
+    setDropdownStyle({
+      position: 'fixed',
+      left: Math.max(8, rect.left),
+      width: Math.min(rect.width, window.innerWidth - Math.max(8, rect.left) - 8),
+      ...(placeAbove
+        ? { bottom: window.innerHeight - rect.top + gap }
+        : { top: rect.bottom + gap }),
+      maxHeight: availableHeight,
+    });
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node) &&
+        !dropdownRef.current?.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    updateDropdownPosition();
+    const reposition = () => updateDropdownPosition();
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [open]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -84,8 +124,8 @@ export function SearchableSelect({
         )}
       </div>
 
-      {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg">
+      {open && typeof document !== 'undefined' && createPortal(
+        <div ref={dropdownRef} style={dropdownStyle} className="z-[100] flex flex-col overflow-hidden bg-white border border-slate-200 rounded-md shadow-lg">
           <div className="p-2 border-b border-slate-100 flex items-center gap-2">
             <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <input
@@ -121,7 +161,7 @@ export function SearchableSelect({
               className="w-full text-xs focus:outline-none"
             />
           </div>
-          <div className="max-h-56 overflow-y-auto divide-y divide-slate-50">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <div className="p-2">
                 <div className="px-1 py-1 text-xs text-slate-500">No matches found</div>
@@ -159,7 +199,8 @@ export function SearchableSelect({
               ))
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
