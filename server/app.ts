@@ -60,7 +60,10 @@ export function createApp(): Express {
     try {
       getDb().prepare('SELECT 1 AS connected').get();
       res.json({ status: 'ok', database: 'connected', service: 'petroblend-enterprise-erp', timestamp: new Date().toISOString() });
-    } catch {
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Unknown database error');
+      const message = error.message.replace(/postgres(?:ql)?:\/\/\S+/gi, '[redacted database URL]');
+      console.error('Database health check failed:', { name: error.name, code: (err as { code?: string })?.code, message });
       res.status(503).json({ status: 'error', database: 'unavailable', service: 'petroblend-enterprise-erp', timestamp: new Date().toISOString() });
     }
   });
