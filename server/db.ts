@@ -318,23 +318,6 @@ function initializeSchema(db: Database.Database): void {
       is_active INTEGER NOT NULL DEFAULT 1
     );
 
-    CREATE TABLE IF NOT EXISTS storage_tanks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      tank_code TEXT NOT NULL UNIQUE,
-      name TEXT NOT NULL,
-      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
-      tank_type TEXT NOT NULL DEFAULT 'Base Oil',
-      capacity_qty REAL NOT NULL DEFAULT 50000,
-      uom TEXT NOT NULL DEFAULT 'LTR',
-      assigned_item_id INTEGER REFERENCES items(id),
-      current_qty REAL NOT NULL DEFAULT 0,
-      min_heel_qty REAL NOT NULL DEFAULT 0,
-      temperature_c REAL,
-      notes TEXT DEFAULT '',
-      is_active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS payment_terms (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -430,6 +413,23 @@ function initializeSchema(db: Database.Database): void {
       created_by INTEGER REFERENCES users(id),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS storage_tanks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tank_code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+      tank_type TEXT NOT NULL DEFAULT 'Base Oil',
+      capacity_qty REAL NOT NULL DEFAULT 50000,
+      uom TEXT NOT NULL DEFAULT 'LTR',
+      assigned_item_id INTEGER REFERENCES items(id),
+      current_qty REAL NOT NULL DEFAULT 0,
+      min_heel_qty REAL NOT NULL DEFAULT 0,
+      temperature_c REAL,
+      notes TEXT DEFAULT '',
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS uom_conversions (
