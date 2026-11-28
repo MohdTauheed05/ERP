@@ -63,6 +63,8 @@ export interface ErpFormTank {
 
 export interface ErpFormLine {
   item_id: number | '';
+  po_item_id?: number;
+  ordered_qty?: number;
   qty: number;
   rate: number;
   discount_pct: number;

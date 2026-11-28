@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Download, FileSpreadsheet, FileText, Printer, Search, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, Printer, Search, ChevronLeft, ChevronRight, ArrowUpDown, ListFilter } from 'lucide-react';
 import { exportTableToPdf, exportToCsv, exportToExcel } from '../utils/export';
 import { useCompany } from '../context/CompanyContext';
 
@@ -10,6 +10,49 @@ export interface ColumnDef<T> {
   numeric?: boolean;
   render?: (row: T) => React.ReactNode;
   exportValue?: (row: T) => unknown;
+}
+
+export function FulfillmentProgress({
+  items,
+  orderedKey,
+  fulfilledKey,
+  status,
+  completeStatuses = ['Completed'],
+}: {
+  items: unknown;
+  orderedKey: 'qty';
+  fulfilledKey: 'received_qty' | 'delivered_qty';
+  status: unknown;
+  completeStatuses?: string[];
+}) {
+  const lines = Array.isArray(items) ? items as Record<string, unknown>[] : [];
+  const ordered = lines.reduce((sum, line) => sum + Math.max(0, Number(line[orderedKey] || 0)), 0);
+  const fulfilled = lines.reduce((sum, line) => sum + Math.max(0, Number(line[fulfilledKey] || 0)), 0);
+  const isComplete = completeStatuses.includes(String(status));
+  const percent = isComplete ? 100 : ordered > 0 ? Math.min(100, Math.round((fulfilled / ordered) * 100)) : 0;
+
+  return (
+    <div className="flex min-w-24 items-center gap-2" title={`${percent}% complete`}>
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-200">
+        <div className={`h-full rounded-full transition-[width] ${percent === 100 ? 'bg-emerald-500' : 'bg-sky-500'}`} style={{ width: `${percent}%` }} />
+      </div>
+      <span className="w-8 text-right text-[11px] tabular-nums text-slate-500">{percent}%</span>
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const key = status.toLowerCase();
+  const colors = key.includes('cancel') || key.includes('reject') || key.includes('fail')
+    ? 'bg-red-50 text-red-700'
+    : key.includes('complete') || key.includes('deliver') || key.includes('posted') || key.includes('approved') || key === 'paid'
+      ? 'bg-emerald-50 text-emerald-700'
+      : key.includes('partial') || key.includes('pending') || key.includes('hold') || key.includes('mismatch')
+        ? 'bg-amber-50 text-amber-700'
+        : key.includes('draft')
+          ? 'bg-slate-100 text-slate-600'
+          : 'bg-sky-50 text-sky-700';
+  return <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${colors}`}>{status || '—'}</span>;
 }
 
 interface DataTableProps<T extends Record<string, unknown>> {
@@ -48,17 +91,21 @@ export function DataTable<T extends Record<string, unknown>>({
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
   const pageSize = 15;
+  const resolvedStatusKey = statusFilterKey || (columns.some((column) => column.key === 'status') ? 'status' : undefined);
+  const resolvedStatusOptions = statusOptions || (resolvedStatusKey
+    ? [...new Set(data.map((row) => String(row[resolvedStatusKey] ?? '')).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+    : []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return data.filter((row) => {
-      if (statusFilterKey && statusFilter !== 'All' && String(row[statusFilterKey] ?? '') !== statusFilter) {
+      if (resolvedStatusKey && statusFilter !== 'All' && String(row[resolvedStatusKey] ?? '') !== statusFilter) {
         return false;
       }
       if (!q) return true;
       return Object.values(row).some((v) => String(v ?? '').toLowerCase().includes(q));
     });
-  }, [data, search, statusFilter, statusFilterKey]);
+  }, [data, search, statusFilter, resolvedStatusKey]);
 
   const sorted = useMemo(() => {
     if (!sortKey) return filtered;
@@ -112,24 +159,22 @@ export function DataTable<T extends Record<string, unknown>>({
               className="pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-md w-64 focus:outline-none focus:ring-2 focus:ring-slate-900"
             />
           </div>
-          {statusFilterKey && statusOptions && (
-            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-md">
-              {['All', ...statusOptions].map((opt) => (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => {
-                    setStatusFilter(opt);
-                    setPage(1);
-                  }}
-                  className={`px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap shrink-0 ${
-                    statusFilter === opt ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {opt}
-                </button>
-              ))}
-            </div>
+          {resolvedStatusKey && resolvedStatusOptions.length > 0 && (
+            <label className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-600">
+              <ListFilter className="h-3.5 w-3.5" />
+              <span>Status</span>
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="max-w-44 bg-transparent text-xs text-slate-800 outline-none"
+                aria-label={`Filter ${title} by status`}
+              >
+                {['All', ...resolvedStatusOptions].map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </label>
           )}
           {toolbarExtra}
         </div>
@@ -240,7 +285,11 @@ export function DataTable<T extends Record<string, unknown>>({
                         col.align === 'right' || col.numeric ? 'text-right font-mono tabular-nums text-xs' : 'text-left'
                       }`}
                     >
-                      {col.render ? col.render(row) : String(row[col.key] ?? '')}
+                      {col.render
+                        ? col.render(row)
+                        : col.key === 'status'
+                          ? <StatusPill status={String(row[col.key] ?? '')} />
+                          : String(row[col.key] ?? '')}
                     </td>
                   ))}
                 </tr>

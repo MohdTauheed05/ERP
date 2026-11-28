@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { FileSpreadsheet, FileText, Plus, Send, Truck } from 'lucide-react';
+import { FileSpreadsheet, FileText, Plus, Send, Truck, Trash2 } from 'lucide-react';
 import { apiRequest } from '../../services/api';
-import { DataTable, type ColumnDef } from '../../components/DataTable';
+import { DataTable, FulfillmentProgress, type ColumnDef } from '../../components/DataTable';
 import { DocumentPanel } from '../../components/DocumentPanel';
 import { ErpDocumentForm, type ErpDocMetaState, type ErpFormItemMaster, type ErpFormLine, type ErpFormParty } from '../../components/ErpDocumentForm';
 import { ErpDocumentViewer, type ErpViewerAction, type ErpViewerItemLine } from '../../components/ErpDocumentViewer';
@@ -106,6 +106,17 @@ export function SalesView() {
       setErr(e instanceof Error ? e.message : 'Failed to load sales data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAction = async (fn: () => Promise<void>) => {
+    setErr('');
+    setMsg('');
+    try {
+      await fn();
+      await loadAll();
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Operation failed');
     }
   };
 
@@ -574,6 +585,8 @@ export function SalesView() {
     { key: 'order_date', header: 'Order Date' },
     { key: 'warehouse_name', header: 'Warehouse' },
     { key: 'total_amount', header: 'Total', numeric: true, render: (r) => `${String(r.currency)} ${Number(r.total_amount || 0).toFixed(2)}` },
+    { key: 'status', header: 'Status' },
+    { key: 'progress', header: 'Delivered', render: (r) => <FulfillmentProgress items={r.items} orderedKey="qty" fulfilledKey="delivered_qty" status={r.status} completeStatuses={['Completed', 'Delivered']} /> },
     { key: 'delivered_status', header: 'Delivery' },
     { key: 'billed_status', header: 'Billing' },
     {
@@ -581,12 +594,28 @@ export function SalesView() {
       header: 'Actions',
       render: (r) => (
         <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-          {r.delivered_status !== 'Delivered' && (
+          {['Submitted', 'Partially Delivered', 'Delivered'].includes(String(r.status)) && (
+            <button type="button" onClick={() => void handleAction(async () => {
+              await apiRequest(`/api/sales/orders/${r.id}/complete`, { method: 'POST' });
+              setMsg(`Sales Order ${r.so_number} marked complete.`);
+            })} className="px-2 py-1 text-[11px] font-medium bg-emerald-600 text-white rounded hover:bg-emerald-700">Complete</button>
+          )}
+          {r.status === 'Cancelled' && (
+            <button type="button" onClick={() => {
+              if (window.confirm(`Permanently delete cancelled Sales Order ${String(r.so_number)}?`)) {
+                void handleAction(async () => {
+                  await apiRequest(`/api/sales/orders/${r.id}`, { method: 'DELETE' });
+                  setMsg(`Cancelled Sales Order ${r.so_number} deleted.`);
+                });
+              }
+            }} className="p-1 text-red-600 hover:text-red-800" title="Delete cancelled Sales Order"><Trash2 className="h-3.5 w-3.5" /></button>
+          )}
+          {r.status !== 'Cancelled' && r.delivered_status !== 'Delivered' && (
             <button type="button" onClick={() => openDeliveryModal(r)} className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium bg-slate-900 text-white rounded hover:bg-slate-800">
               <Truck className="w-3 h-3" /> Deliver
             </button>
           )}
-          {r.billed_status !== 'Billed' && (
+          {r.status !== 'Cancelled' && r.billed_status !== 'Billed' && (
             <button type="button" onClick={() => void invoiceFromOrder(r)} className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium bg-emerald-700 text-white rounded hover:bg-emerald-800">
               <Send className="w-3 h-3" /> Post Invoice
             </button>
@@ -824,6 +853,18 @@ export function SalesView() {
         }
       } else if (viewingDoc.type === 'orders') {
         const st = String(rec.status || '');
+        if (['Submitted', 'Partially Delivered', 'Delivered'].includes(st)) {
+          createActions.push({
+            label: 'Mark SO Complete',
+            variant: 'emerald',
+            onClick: async () => {
+              await handleAction(async () => {
+                await apiRequest(`/api/sales/orders/${rec.id}/complete`, { method: 'POST' });
+                setMsg(`Sales Order ${docNumber} marked complete at the quantity delivered.`);
+              });
+            },
+          });
+        }
         if (st === 'Draft') {
           createActions.push({
             label: 'Submit & Reserve',
@@ -933,6 +974,20 @@ export function SalesView() {
               setErr(e instanceof Error ? e.message : 'Cancel failed');
             }
           };
+        }
+        if (st === 'Cancelled') {
+          createActions.push({
+            label: 'Delete Cancelled SO',
+            variant: 'amber',
+            onClick: async () => {
+              if (!window.confirm(`Permanently delete cancelled Sales Order ${docNumber}?`)) return;
+              await handleAction(async () => {
+                await apiRequest(`/api/sales/orders/${rec.id}`, { method: 'DELETE' });
+                setViewingDoc(null);
+                setMsg(`Cancelled Sales Order ${docNumber} deleted.`);
+              });
+            },
+          });
         }
       } else if (viewingDoc.type === 'deliveries') {
         const linkedSo = orders.find((o) => Number(o.id) === Number(rec.so_id));

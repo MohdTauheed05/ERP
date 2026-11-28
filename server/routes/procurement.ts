@@ -538,6 +538,61 @@ router.post('/purchase-orders/:id/cancel', requirePermission('procurement', 'can
   }
 });
 
+router.post('/purchase-orders/:id/complete', requirePermission('procurement', 'can_edit'), (req: AuthRequest, res) => {
+  const poId = Number(req.params.id);
+  try {
+    const result = withTransaction((db) => {
+      const po = db.prepare('SELECT id, po_number, status FROM purchase_orders WHERE id = ?').get(poId) as
+        | { id: number; po_number: string; status: string }
+        | undefined;
+      if (!po) throw new Error('Purchase Order not found');
+      if (po.status === 'Cancelled') throw new Error('A cancelled Purchase Order cannot be completed');
+      if (po.status === 'Completed') return { id: po.id, status: po.status };
+      if (!['Submitted', 'Partially Received'].includes(po.status)) {
+        throw new Error('Only submitted Purchase Orders can be marked complete');
+      }
+      db.prepare("UPDATE purchase_orders SET status = 'Completed' WHERE id = ?").run(poId);
+      recordAuditLog(db, req.user, 'PurchaseOrder', poId, po.po_number, 'Mark Purchase Order Complete', { manual: true });
+      return { id: po.id, status: 'Completed' };
+    });
+    res.json(result);
+  } catch (err: unknown) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to complete Purchase Order' });
+  }
+});
+
+router.delete('/purchase-orders/:id', requirePermission('procurement', 'can_delete'), (req: AuthRequest, res) => {
+  const poId = Number(req.params.id);
+  try {
+    withTransaction((db) => {
+      const po = db.prepare('SELECT id, po_number, status FROM purchase_orders WHERE id = ?').get(poId) as
+        | { id: number; po_number: string; status: string }
+        | undefined;
+      if (!po) throw new Error('Purchase Order not found');
+      if (po.status !== 'Cancelled') throw new Error('Only cancelled Purchase Orders can be deleted');
+      const dependencies = [
+        ['Goods receipts', 'SELECT COUNT(*) as c FROM purchase_receipts WHERE po_id = ?'],
+        ['supplier invoices', 'SELECT COUNT(*) as c FROM purchase_invoices WHERE po_id = ?'],
+        ['attachments', "SELECT COUNT(*) as c FROM attachments WHERE doc_type = 'PurchaseOrder' AND doc_id = ?"],
+        ['revisions', 'SELECT COUNT(*) as c FROM purchase_orders WHERE amended_from = ?'],
+      ] as const;
+      for (const [label, sql] of dependencies) {
+        const reference = label === 'revisions'
+          ? db.prepare(sql).get(po.po_number) as { c: number }
+          : db.prepare(sql).get(poId) as { c: number };
+        if (Number(reference.c) > 0) throw new Error(`This Purchase Order has linked ${label} and cannot be deleted`);
+      }
+      db.prepare("DELETE FROM approval_requests WHERE doc_type = 'PurchaseOrder' AND doc_id = ?").run(poId);
+      db.prepare('DELETE FROM purchase_order_items WHERE po_id = ?').run(poId);
+      db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(poId);
+      recordAuditLog(db, req.user, 'PurchaseOrder', poId, po.po_number, 'Delete Cancelled Purchase Order', {});
+    });
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to delete Purchase Order' });
+  }
+});
+
 router.put('/purchase-orders/:id', requirePermission('procurement', 'can_edit'), (req: AuthRequest, res) => {
   const poId = Number(req.params.id);
   const b = req.body as {
@@ -841,7 +896,27 @@ router.post('/purchase-receipts', requirePermission('procurement', 'can_create')
         `INSERT INTO purchase_receipt_items (grn_id, po_item_id, item_id, tank_id, ordered_qty, received_qty, accepted_qty, rejected_qty, uom, rate, warehouse_id, batch_number, mfg_date, expiry_date, qc_required, qc_status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')`
       );
-      for (const l of b.items) {
+      const receiptLines = b.items.map((line) => {
+        if (!b.po_id || line.po_item_id) return line;
+        const matches = db.prepare('SELECT id, qty, received_qty FROM purchase_order_items WHERE po_id = ? AND item_id = ? ORDER BY id ASC')
+          .all(b.po_id, line.item_id) as { id: number; qty: number; received_qty: number }[];
+        if (matches.length === 1) return { ...line, po_item_id: matches[0].id, ordered_qty: matches[0].qty };
+        if (matches.length > 1) throw new Error(`Select the matching Purchase Order line for item ${line.item_id}`);
+        return line;
+      });
+      const receiptTotals = new Map<number, number>();
+      for (const line of receiptLines) {
+        if (!line.po_item_id) continue;
+        const poItem = db.prepare('SELECT id, item_id, qty, received_qty FROM purchase_order_items WHERE id = ? AND po_id = ?')
+          .get(line.po_item_id, b.po_id) as { id: number; item_id: number; qty: number; received_qty: number } | undefined;
+        if (!poItem || poItem.item_id !== Number(line.item_id)) throw new Error('The selected item does not belong to this Purchase Order');
+        const cumulative = (receiptTotals.get(poItem.id) || 0) + roundQty(line.accepted_qty);
+        receiptTotals.set(poItem.id, cumulative);
+        if (poItem.qty > 0 && poItem.received_qty + cumulative > poItem.qty * 1.05 + 0.0001) {
+          throw new Error(`Accepted quantity cannot exceed 105% of the ordered quantity for item ${line.item_id}`);
+        }
+      }
+      for (const l of receiptLines) {
         const item = db.prepare('SELECT stock_uom, item_code FROM items WHERE id = ?').get(l.item_id) as { stock_uom: string; item_code: string };
         const batchNo = l.batch_number?.trim() || `B-${item.item_code}-${grnNumber}`;
         ins.run(

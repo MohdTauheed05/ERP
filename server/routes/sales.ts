@@ -491,6 +491,63 @@ router.post('/orders/:id/cancel', requirePermission('sales', 'can_cancel'), (req
   }
 });
 
+router.post('/orders/:id/complete', requirePermission('sales', 'can_edit'), (req: AuthRequest, res) => {
+  const soId = Number(req.params.id);
+  try {
+    const result = withTransaction((db) => {
+      const so = db.prepare('SELECT id, so_number, status FROM sales_orders WHERE id = ?').get(soId) as
+        | { id: number; so_number: string; status: string }
+        | undefined;
+      if (!so) throw new Error('Sales Order not found');
+      if (so.status === 'Cancelled') throw new Error('A cancelled Sales Order cannot be completed');
+      if (so.status === 'Completed') return { id: so.id, status: so.status };
+      if (!['Submitted', 'Partially Delivered', 'Delivered'].includes(so.status)) {
+        throw new Error('Only submitted Sales Orders can be marked complete');
+      }
+      db.prepare("UPDATE stock_reservations SET status = 'Released' WHERE doc_type = 'SalesOrder' AND doc_id = ? AND status = 'Active'").run(soId);
+      db.prepare("UPDATE sales_orders SET status = 'Completed' WHERE id = ?").run(soId);
+      recordAuditLog(db, req.user, 'SalesOrder', soId, so.so_number, 'Mark Sales Order Complete', { manual: true });
+      return { id: so.id, status: 'Completed' };
+    });
+    res.json(result);
+  } catch (err: unknown) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to complete Sales Order' });
+  }
+});
+
+router.delete('/orders/:id', requirePermission('sales', 'can_delete'), (req: AuthRequest, res) => {
+  const soId = Number(req.params.id);
+  try {
+    withTransaction((db) => {
+      const so = db.prepare('SELECT id, so_number, status FROM sales_orders WHERE id = ?').get(soId) as
+        | { id: number; so_number: string; status: string }
+        | undefined;
+      if (!so) throw new Error('Sales Order not found');
+      if (so.status !== 'Cancelled') throw new Error('Only cancelled Sales Orders can be deleted');
+      const dependencies = [
+        ['Delivery Notes', 'SELECT COUNT(*) as c FROM delivery_notes WHERE so_id = ?'],
+        ['sales invoices', 'SELECT COUNT(*) as c FROM sales_invoices WHERE so_id = ?'],
+        ['attachments', "SELECT COUNT(*) as c FROM attachments WHERE doc_type = 'SalesOrder' AND doc_id = ?"],
+        ['revisions', 'SELECT COUNT(*) as c FROM sales_orders WHERE amended_from = ?'],
+      ] as const;
+      for (const [label, sql] of dependencies) {
+        const reference = label === 'revisions'
+          ? db.prepare(sql).get(so.so_number) as { c: number }
+          : db.prepare(sql).get(soId) as { c: number };
+        if (Number(reference.c) > 0) throw new Error(`This Sales Order has linked ${label} and cannot be deleted`);
+      }
+      db.prepare("DELETE FROM approval_requests WHERE doc_type = 'SalesOrder' AND doc_id = ?").run(soId);
+      db.prepare("DELETE FROM stock_reservations WHERE doc_type = 'SalesOrder' AND doc_id = ?").run(soId);
+      db.prepare('DELETE FROM sales_order_items WHERE so_id = ?').run(soId);
+      db.prepare('DELETE FROM sales_orders WHERE id = ?').run(soId);
+      recordAuditLog(db, req.user, 'SalesOrder', soId, so.so_number, 'Delete Cancelled Sales Order', {});
+    });
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Failed to delete Sales Order' });
+  }
+});
+
 router.post('/orders/:id/revise', requirePermission('sales', 'can_amend'), (req: AuthRequest, res) => {
   const soId = Number(req.params.id);
   try {

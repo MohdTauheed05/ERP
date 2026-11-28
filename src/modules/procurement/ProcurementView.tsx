@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, FileText, CheckCircle2, AlertTriangle, Paperclip, FileSpreadsheet } from 'lucide-react';
+import { Plus, FileText, CheckCircle2, AlertTriangle, Paperclip, FileSpreadsheet, Trash2 } from 'lucide-react';
 import { apiRequest } from '../../services/api';
-import { DataTable, type ColumnDef } from '../../components/DataTable';
+import { DataTable, FulfillmentProgress, type ColumnDef } from '../../components/DataTable';
 import { DocumentPanel } from '../../components/DocumentPanel';
 import { ErpDocumentForm, type ErpDocMetaState, type ErpFormItemMaster, type ErpFormLine, type ErpFormParty } from '../../components/ErpDocumentForm';
 import { ErpDocumentViewer, type ErpViewerAction, type ErpViewerItemLine } from '../../components/ErpDocumentViewer';
@@ -302,6 +302,8 @@ export function ProcurementView() {
               remarks: docMeta.remarks,
               submit_now: true,
               items: validLines.map((l) => ({
+                po_item_id: l.po_item_id,
+                ordered_qty: l.ordered_qty,
                 item_id: l.item_id,
                 tank_id: l.tank_id ? Number(l.tank_id) : null,
                 received_qty: l.qty,
@@ -399,6 +401,8 @@ export function ProcurementView() {
       setLineItems(
         po.items.map((i) => ({
           item_id: i.item_id,
+          po_item_id: i.id,
+          ordered_qty: i.qty,
           qty: Math.max(0, i.qty - i.received_qty) || i.qty,
           rate: i.rate,
           discount_pct: Number(i.discount_pct || 0),
@@ -651,6 +655,7 @@ export function ProcurementView() {
     { key: 'currency', header: 'Curr' },
     { key: 'total_amount', header: 'Total', numeric: true, render: (r) => Number(r.total_amount || 0).toFixed(2) },
     { key: 'status', header: 'Status' },
+    { key: 'progress', header: 'Received', render: (r) => <FulfillmentProgress items={r.items} orderedKey="qty" fulfilledKey="received_qty" status={r.status} /> },
     { key: 'approval_status', header: 'Approval' },
     {
       key: 'actions',
@@ -670,6 +675,32 @@ export function ProcurementView() {
             >
               Submit
             </button>
+          )}
+          {['Submitted', 'Partially Received'].includes(String(r.status)) && (
+            <button
+              type="button"
+              onClick={() => void handleAction(async () => {
+                await apiRequest(`/api/procurement/purchase-orders/${r.id}/complete`, { method: 'POST' });
+                setMsg(`Purchase Order ${r.po_number} marked complete.`);
+              })}
+              className="px-2 py-1 text-[11px] font-medium bg-emerald-600 text-white rounded hover:bg-emerald-700"
+              title="Close this PO at the quantity received"
+            >Complete</button>
+          )}
+          {r.status === 'Cancelled' && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(`Permanently delete cancelled Purchase Order ${String(r.po_number)}?`)) {
+                  void handleAction(async () => {
+                    await apiRequest(`/api/procurement/purchase-orders/${r.id}`, { method: 'DELETE' });
+                    setMsg(`Cancelled Purchase Order ${r.po_number} deleted.`);
+                  });
+                }
+              }}
+              className="p-1 text-red-600 hover:text-red-800"
+              title="Delete cancelled Purchase Order"
+            ><Trash2 className="h-3.5 w-3.5" /></button>
           )}
           <button
             type="button"
@@ -1052,6 +1083,16 @@ export function ProcurementView() {
         }
         if (['Submitted', 'Partially Received'].includes(st)) {
           createActions.push({
+            label: 'Mark PO Complete',
+            variant: 'emerald',
+            onClick: async () => {
+              await handleAction(async () => {
+                await apiRequest(`/api/procurement/purchase-orders/${rec.id}/complete`, { method: 'POST' });
+                setMsg(`Purchase Order ${docNumber} marked complete at the quantity received.`);
+              });
+            },
+          });
+          createActions.push({
             label: 'Make GRN / MRN',
             variant: 'primary',
             onClick: () => openMakeGrnFromPo(rec),
@@ -1141,6 +1182,19 @@ export function ProcurementView() {
               setMsg(`Purchase Order ${docNumber} cancelled.`);
             });
           };
+        } else {
+          createActions.push({
+            label: 'Delete Cancelled PO',
+            variant: 'amber',
+            onClick: async () => {
+              if (!window.confirm(`Permanently delete cancelled Purchase Order ${docNumber}?`)) return;
+              await handleAction(async () => {
+                await apiRequest(`/api/procurement/purchase-orders/${rec.id}`, { method: 'DELETE' });
+                setViewingDoc(null);
+                setMsg(`Cancelled Purchase Order ${docNumber} deleted.`);
+              });
+            },
+          });
         }
       } else if (viewingDoc.type === 'grn') {
         const linkedPo = pos.find((p) => Number(p.id) === Number(rec.po_id));
