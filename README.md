@@ -1,4 +1,3 @@
-Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' provider failed.
 # PetroBlend Enterprise ERP
 
 Enterprise Lubricants Manufacturing, Blending, Packaging, Procurement, Inventory, Quality Control, Sales, UAE 5% VAT Accounting, HR/Payroll, CRM & Projects ERP System.
