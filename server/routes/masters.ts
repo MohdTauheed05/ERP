@@ -359,7 +359,7 @@ router.get('/items', requirePermission('masters', 'can_view'), (req, res) => {
        LEFT JOIN warehouses w ON w.id = i.default_warehouse_id
        LEFT JOIN suppliers s ON s.id = i.preferred_supplier_id
        WHERE (? = '' OR i.item_code LIKE ? OR i.name LIKE ? OR i.brand LIKE ? OR i.sku LIKE ? OR c.name LIKE ? OR c.group_code LIKE ?)
-         AND (? IS NULL OR i.category_id IN (SELECT id FROM cat_tree))
+         AND (CAST(? AS BIGINT) IS NULL OR i.category_id IN (SELECT id FROM cat_tree))
        ORDER BY i.id DESC`
     )
     .all(categoryId, search, like, like, like, like, like, like, categoryId) as Record<string, unknown>[];
