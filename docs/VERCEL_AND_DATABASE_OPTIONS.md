@@ -12,7 +12,7 @@ Attempting to perform the InitializeDefaultDrives operation on the 'FileSystem' 
 
 ## Neon test database
 
-Use the account owner's Neon login (planned: `touheedshaikh8@gmail.com`) to create a free PostgreSQL project for testing. Select a region reasonably close to the Vercel function region and ERP users. The Neon free plan currently includes up to 1 GB of database storage per project; compute is limited, and inactive compute can scale to zero. This is suitable for a test environment, not a promise of always-on production service. Review Neon’s current [free plan limits](https://neon.com/pricing) before using the project.
+Use the account owner's Neon login (planned: `touheedshaikh8@gmail.com`) to create a free PostgreSQL project for testing. Choose Frankfurt (`eu-central-1`) when it is offered. The Vercel API is configured for Frankfurt (`fra1`) so database requests run beside Neon and avoid extra database round trips. The Neon free plan currently includes up to 1 GB of database storage per project; compute is limited, and inactive compute can scale to zero. This is suitable for a test environment, not a promise of always-on production service. Review Neon’s current [free plan limits](https://neon.com/pricing) before using the project.
 
 In the Neon dashboard, create a database and copy its **pooled** connection string. Add these Vercel environment variables to **Preview** first (and Production only if intentionally testing on the public production URL):
 
