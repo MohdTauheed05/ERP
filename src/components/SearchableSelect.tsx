@@ -13,6 +13,8 @@ interface SearchableSelectProps {
   onChange: (value: number | string) => void;
   placeholder?: string;
   disabled?: boolean;
+  createOptionLabel?: string;
+  onCreateOption?: (query: string) => void;
 }
 
 export function SearchableSelect({
@@ -21,6 +23,8 @@ export function SearchableSelect({
   onChange,
   placeholder = 'Select...',
   disabled = false,
+  createOptionLabel,
+  onCreateOption,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -104,6 +108,11 @@ export function SearchableSelect({
                   onChange(filtered[highlight].value);
                   setOpen(false);
                   setQuery('');
+                } else if (e.key === 'Enter' && query.trim() && onCreateOption) {
+                  e.preventDefault();
+                  onCreateOption(query.trim());
+                  setOpen(false);
+                  setQuery('');
                 } else if (e.key === 'Escape') {
                   setOpen(false);
                 }
@@ -114,7 +123,22 @@ export function SearchableSelect({
           </div>
           <div className="max-h-56 overflow-y-auto divide-y divide-slate-50">
             {filtered.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-slate-500">No matches</div>
+              <div className="p-2">
+                <div className="px-1 py-1 text-xs text-slate-500">No matches found</div>
+                {query.trim() && onCreateOption && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onCreateOption(query.trim());
+                      setOpen(false);
+                      setQuery('');
+                    }}
+                    className="w-full px-2.5 py-2 text-left text-xs font-medium text-blue-700 hover:bg-blue-50 rounded"
+                  >
+                    + Create {createOptionLabel || 'new record'} “{query.trim()}”
+                  </button>
+                )}
+              </div>
             ) : (
               filtered.map((opt, idx) => (
                 <button
@@ -140,3 +164,4 @@ export function SearchableSelect({
     </div>
   );
 }
+
