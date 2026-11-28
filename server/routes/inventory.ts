@@ -46,7 +46,7 @@ router.get('/ledger', requirePermission('inventory', 'can_view'), (req, res) => 
        JOIN items i ON i.id = sl.item_id
        JOIN warehouses w ON w.id = sl.warehouse_id
        LEFT JOIN storage_tanks st ON st.id = sl.tank_id
-       WHERE (? IS NULL OR sl.item_id = ?) AND (? IS NULL OR sl.warehouse_id = ?)
+       WHERE (CAST(? AS BIGINT) IS NULL OR sl.item_id = ?) AND (CAST(? AS BIGINT) IS NULL OR sl.warehouse_id = ?)
        ORDER BY sl.id DESC LIMIT 500`
     )
     .all(itemId, itemId, warehouseId, warehouseId);
