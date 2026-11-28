@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Barcode,
@@ -19,6 +19,7 @@ import {
   parseLineItemsExcelFile,
 } from '../utils/export';
 import { useCompany } from '../context/CompanyContext';
+import { apiRequest } from '../services/api';
 
 export interface ErpFormItemMaster {
   id: number;
@@ -148,6 +149,8 @@ export interface ErpDocumentFormProps {
 }
 
 type DocFormTab = 'details' | 'address' | 'terms' | 'more';
+type QuickCreateState = { kind: 'item'; query: string; lineIndex: number } | { kind: 'party'; query: string };
+type QuickCreateCategory = { id: number; name: string; parent_id?: number | null; is_group?: number };
 
 export function ErpDocumentForm({
   title,
@@ -207,14 +210,151 @@ export function ErpDocumentForm({
   const [multiSearch, setMultiSearch] = useState('');
   const [multiSelected, setMultiSelected] = useState<number[]>([]);
   const [gridMsg, setGridMsg] = useState('');
+  const [quickCreate, setQuickCreate] = useState<QuickCreateState | null>(null);
+  const [quickCreateCategories, setQuickCreateCategories] = useState<QuickCreateCategory[]>([]);
+  const [createdItems, setCreatedItems] = useState<ErpFormItemMaster[]>([]);
+  const [createdParties, setCreatedParties] = useState<ErpFormParty[]>([]);
+  const [quickCreateName, setQuickCreateName] = useState('');
+  const [quickCreateCode, setQuickCreateCode] = useState('');
+  const [quickCreateCategoryId, setQuickCreateCategoryId] = useState('');
+  const [quickCreateUom, setQuickCreateUom] = useState('PCS');
+  const [quickCreatePurchasePrice, setQuickCreatePurchasePrice] = useState('0');
+  const [quickCreateSellingPrice, setQuickCreateSellingPrice] = useState('0');
+  const [quickCreateVatRate, setQuickCreateVatRate] = useState('5');
+  const [quickCreateContact, setQuickCreateContact] = useState('');
+  const [quickCreateEmail, setQuickCreateEmail] = useState('');
+  const [quickCreateTelephone, setQuickCreateTelephone] = useState('');
+  const [quickCreateTrn, setQuickCreateTrn] = useState('');
+  const [quickCreateCurrency, setQuickCreateCurrency] = useState(meta.currency || 'AED');
+  const [quickCreateError, setQuickCreateError] = useState('');
+  const [quickCreateSaving, setQuickCreateSaving] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
+  const availableParties = useMemo(() => [...parties, ...createdParties], [parties, createdParties]);
+  const availableItems = useMemo(() => [...items, ...createdItems], [items, createdItems]);
   const selectedParty = useMemo(
-    () => parties.find((p) => p.id === Number(meta.party_id)),
-    [parties, meta.party_id]
+    () => availableParties.find((p) => p.id === Number(meta.party_id)),
+    [availableParties, meta.party_id]
   );
 
-  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const itemById = useMemo(() => new Map(availableItems.map((i) => [i.id, i])), [availableItems]);
+
+  useEffect(() => {
+    if (quickCreate?.kind !== 'item') return;
+    let cancelled = false;
+    apiRequest<{ items: QuickCreateCategory[] }>('/api/masters/categories')
+      .then((result) => {
+        if (cancelled) return;
+        setQuickCreateCategories(result.items);
+        setQuickCreateCategoryId((current) => current || String(result.items.find((c) => !c.is_group)?.id || result.items[0]?.id || ''));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setQuickCreateError(error instanceof Error ? error.message : 'Could not load item categories.');
+      });
+    return () => { cancelled = true; };
+  }, [quickCreate?.kind, quickCreate?.query]);
+
+  const beginQuickCreate = (kind: 'item' | 'party', query: string, lineIndex?: number) => {
+    const cleanName = query.trim();
+    setQuickCreateError('');
+    setQuickCreateName(cleanName);
+    setQuickCreateCode(cleanName.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 32));
+    setQuickCreateContact('');
+    setQuickCreateEmail('');
+    setQuickCreateTelephone('');
+    setQuickCreateTrn('');
+    setQuickCreateCurrency(meta.currency || 'AED');
+    setQuickCreateCategoryId('');
+    setQuickCreateUom(companyRole === 'Buyer' ? 'LTR' : 'PCS');
+    setQuickCreatePurchasePrice('0');
+    setQuickCreateSellingPrice('0');
+    setQuickCreateVatRate('5');
+    setQuickCreate(kind === 'item' ? { kind, query: cleanName, lineIndex: lineIndex ?? 0 } : { kind, query: cleanName });
+  };
+
+  const saveQuickCreate = async () => {
+    if (!quickCreate) return;
+    setQuickCreateError('');
+    if (!quickCreateName.trim()) {
+      setQuickCreateError('Enter a name to continue.');
+      return;
+    }
+    setQuickCreateSaving(true);
+    try {
+      if (quickCreate.kind === 'item') {
+        if (!quickCreateCategoryId) throw new Error('Select an item category before saving.');
+        if (!quickCreateCode.trim()) throw new Error('Enter an item code before saving.');
+        const payload = {
+          item_code: quickCreateCode.trim().toUpperCase(),
+          name: quickCreateName.trim(),
+          category_id: Number(quickCreateCategoryId),
+          purchase_uom: quickCreateUom,
+          stock_uom: quickCreateUom,
+          sales_uom: quickCreateUom,
+          standard_cost: Number(quickCreatePurchasePrice || 0),
+          last_purchase_price: Number(quickCreatePurchasePrice || 0),
+          selling_price: Number(quickCreateSellingPrice || 0),
+          vat_rate: Number(quickCreateVatRate || 0),
+          batch_tracking: 0,
+          expiry_tracking: 0,
+          is_active: 1,
+        };
+        const result = await apiRequest<{ id: number }>('/api/masters/items', { method: 'POST', body: JSON.stringify(payload) });
+        const created: ErpFormItemMaster = {
+          ...payload,
+          id: result.id,
+          barcode: '',
+        };
+        setCreatedItems((current) => [...current.filter((item) => item.id !== created.id), created]);
+        setLines((current) => current.map((line, index) => index === quickCreate.lineIndex ? {
+          ...line,
+          item_id: created.id,
+          rate: companyRole === 'Seller' ? Number(created.selling_price || 0) : Number(created.standard_cost || 0),
+          vat_rate: meta.tax_template === 'UAE VAT 5%' ? Number(created.vat_rate ?? 5) : 0,
+          tank_id: findMatchingTank(created.id, meta.warehouse_id),
+        } : line));
+        setQuickCreate(null);
+        if (onItemLookupRate) {
+          try {
+            await onItemLookupRate(quickCreate.lineIndex, created.id, lines[quickCreate.lineIndex]?.qty || 1);
+          } catch {
+            setGridMsg(`${created.item_code} was created and added. Review the unit price before saving.`);
+          }
+        }
+      } else {
+        const isSupplier = partyRole === 'Seller' && !partyLabel.toLowerCase().includes('customer');
+        const endpoint = isSupplier ? '/api/masters/suppliers' : '/api/masters/customers';
+        const result = await apiRequest<{ id: number; code: string }>(endpoint, {
+          method: 'POST',
+          body: JSON.stringify({
+            name: quickCreateName.trim(),
+            contact_person: quickCreateContact.trim(),
+            email: quickCreateEmail.trim(),
+            telephone: quickCreateTelephone.trim(),
+            trn: quickCreateTrn.trim(),
+            currency: quickCreateCurrency,
+          }),
+        });
+        const created: ErpFormParty = {
+          id: result.id,
+          code: result.code,
+          name: quickCreateName.trim(),
+          contact_person: quickCreateContact.trim(),
+          email: quickCreateEmail.trim(),
+          telephone: quickCreateTelephone.trim(),
+          trn: quickCreateTrn.trim(),
+          currency: quickCreateCurrency,
+        };
+        setCreatedParties((current) => [...current.filter((party) => party.id !== created.id), created]);
+        setMeta((current) => ({ ...current, party_id: created.id, currency: created.currency || current.currency }));
+      }
+      setQuickCreate(null);
+    } catch (error) {
+      setQuickCreateError(error instanceof Error ? error.message : 'Could not create this record.');
+    } finally {
+      setQuickCreateSaving(false);
+    }
+  };
 
   const findMatchingTank = (itemId: number | '', whId: number | ''): number | '' => {
     if (!itemId || !whId) return '';
@@ -572,7 +712,7 @@ export function ErpDocumentForm({
                     {partyLabel} <span className="text-red-600">*</span>
                   </label>
                   <SearchableSelect
-                    options={parties.map((p) => ({ value: p.id, label: `${p.code} - ${p.name}`, sublabel: p.currency }))}
+                    options={availableParties.map((p) => ({ value: p.id, label: `${p.code} - ${p.name}`, sublabel: [p.currency, p.contact_person].filter(Boolean).join(' · ') }))}
                     value={meta.party_id}
                     onChange={(v) => {
                       if (v === '') {
@@ -589,6 +729,8 @@ export function ErpDocumentForm({
                       }));
                     }}
                     placeholder={`Type to select ${partyLabel}...`}
+                    createOptionLabel={partyRole === 'Seller' ? 'supplier' : 'customer'}
+                    onCreateOption={(query) => beginQuickCreate('party', query)}
                   />
                 </div>
               )}
@@ -868,7 +1010,7 @@ export function ErpDocumentForm({
                           </td>
                           <td className="px-2 py-1 border-r border-slate-200">
                             <SearchableSelect
-                              options={items.map((i) => ({
+                              options={availableItems.map((i) => ({
                                 value: i.id,
                                 label: `${i.item_code} - ${i.name}`,
                                 sublabel: i.stock_uom,
@@ -903,6 +1045,8 @@ export function ErpDocumentForm({
                                 if (onItemLookupRate) await onItemLookupRate(idx, numId, li.qty);
                               }}
                               placeholder="Type to select item..."
+                              createOptionLabel="item"
+                              onCreateOption={(query) => beginQuickCreate('item', query, idx)}
                             />
                           </td>
                           <td className="px-2 py-1 border-r border-slate-200">
@@ -1447,6 +1591,114 @@ export function ErpDocumentForm({
           </div>
         </div>
       )}
+
+      {quickCreate && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/45 p-4" role="presentation">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="quick-create-title"
+            onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }}
+            className="w-full max-w-xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+          >
+            <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 id="quick-create-title" className="text-base font-semibold text-slate-900">
+                  Create {quickCreate.kind === 'item' ? 'item' : partyRole === 'Seller' ? 'supplier' : 'customer'}
+                </h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  Save this record and select it in the current {quickCreate.kind === 'item' ? 'order line' : 'document'}.
+                </p>
+              </div>
+              <button type="button" onClick={() => setQuickCreate(null)} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900" aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 p-5" onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }}>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-slate-700">{quickCreate.kind === 'item' ? 'Item name' : `${partyRole === 'Seller' ? 'Supplier' : 'Customer'} name`} <span className="text-red-600">*</span></span>
+                <input autoFocus required value={quickCreateName} onChange={(event) => setQuickCreateName(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200" />
+              </label>
+
+              {quickCreate.kind === 'item' ? (
+                <>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-700">Item code <span className="text-red-600">*</span></span>
+                      <input required value={quickCreateCode} onChange={(event) => setQuickCreateCode(event.target.value.toUpperCase())} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono uppercase" />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-700">Category <span className="text-red-600">*</span></span>
+                      <select required value={quickCreateCategoryId} onChange={(event) => setQuickCreateCategoryId(event.target.value)} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+                        <option value="">{quickCreateCategories.length ? 'Choose a category' : 'Loading categories...'}</option>
+                        {quickCreateCategories.map((category) => <option key={category.id} value={category.id}>{category.parent_id ? '↳ ' : ''}{category.name}</option>)}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-700">Unit of measure</span>
+                      <select value={quickCreateUom} onChange={(event) => setQuickCreateUom(event.target.value)} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+                        {['PCS', 'LTR', 'KG', 'MT', 'DRUM', 'PAIL', 'CAN', 'CARTON', 'BOX', 'SET'].map((uom) => <option key={uom} value={uom}>{uom}</option>)}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-700">VAT rate (%)</span>
+                      <input type="number" min="0" max="100" step="0.01" value={quickCreateVatRate} onChange={(event) => setQuickCreateVatRate(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-700">Purchase price ({meta.currency})</span>
+                      <input type="number" min="0" step="0.01" value={quickCreatePurchasePrice} onChange={(event) => setQuickCreatePurchasePrice(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-700">Selling price ({meta.currency})</span>
+                      <input type="number" min="0" step="0.01" value={quickCreateSellingPrice} onChange={(event) => setQuickCreateSellingPrice(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                    </label>
+                  </div>
+                  {!quickCreateCategories.length && <p className="text-[11px] text-slate-500">Item categories are loading. You can continue once they appear.</p>}
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-700">Contact person</span>
+                      <input value={quickCreateContact} onChange={(event) => setQuickCreateContact(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-700">Phone</span>
+                      <input value={quickCreateTelephone} onChange={(event) => setQuickCreateTelephone(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-700">Email</span>
+                      <input type="email" value={quickCreateEmail} onChange={(event) => setQuickCreateEmail(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-700">TRN</span>
+                      <input value={quickCreateTrn} onChange={(event) => setQuickCreateTrn(event.target.value)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-medium text-slate-700">Currency</span>
+                      <select value={quickCreateCurrency} onChange={(event) => setQuickCreateCurrency(event.target.value)} className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+                        {['AED', 'USD', 'EUR', 'CNY', 'INR'].map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-slate-500">A record code will be assigned automatically. You can complete more details later in Master Data.</p>
+                </>
+              )}
+
+              {quickCreateError && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{quickCreateError}</p>}
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+              <button type="button" onClick={() => setQuickCreate(null)} disabled={quickCreateSaving} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={() => void saveQuickCreate()} disabled={quickCreateSaving || (quickCreate.kind === 'item' && (!quickCreateCategories.length || !quickCreateCategoryId))} className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
+                <Plus className="h-3.5 w-3.5" /> {quickCreateSaving ? 'Saving...' : `Create and select ${quickCreate.kind === 'item' ? 'item' : partyRole === 'Seller' ? 'supplier' : 'customer'}`}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </form>
   );
 }
+
