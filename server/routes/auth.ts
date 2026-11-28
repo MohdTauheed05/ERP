@@ -98,9 +98,13 @@ router.post('/setup-admin', (req, res) => {
            VALUES (?, ?, ?, ?, ?, 'Management', 1, ?, ?, ?)`
         )
         .run(username.trim(), email.trim().toLowerCase(), fullName.trim(), hash, superRole.id, now, now, now);
+      // Read the persisted identifier back by its unique username. This avoids relying on adapter-specific
+      // insert metadata when the first-admin audit row enforces the users foreign key.
+      const createdUser = db.prepare('SELECT id FROM users WHERE username = ?').get(username.trim()) as { id: number } | undefined;
+      if (!createdUser) throw new Error('Administrator account could not be loaded after creation.');
 
       const user = {
-        id: Number(ins.lastInsertRowid),
+        id: Number(createdUser.id),
         username: username.trim(),
         email: email.trim().toLowerCase(),
         full_name: fullName.trim(),
