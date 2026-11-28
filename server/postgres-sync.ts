@@ -208,6 +208,16 @@ function insertReturningId(sql: string): string {
 }
 
 export function createPostgresSyncDatabase(): any {
+  // On warm existing databases initializeSchema() is skipped, so translateDdl()
+  // has not populated this process-local set. Discover serial-backed IDs before
+  // the first insert so run() can append RETURNING id and provide lastInsertRowid.
+  const serialIdTables = query(
+    "SELECT table_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND column_name = 'id' AND column_default LIKE 'nextval(%'"
+  ).rows;
+  for (const row of serialIdTables) {
+    if (typeof row.name === 'string') sequenceTables.add(row.name.toLowerCase());
+  }
+
   const db = {
     prepare(sql: string) {
       const source = normalizeSql(sql);
