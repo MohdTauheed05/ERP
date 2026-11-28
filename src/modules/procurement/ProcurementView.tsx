@@ -556,7 +556,9 @@ export function ProcurementView() {
   const printProcurementPdf = (docType: 'MR' | 'PR' | 'RFQ' | 'SQ' | 'PO' | 'GRN' | 'PI' | 'PRN' | 'SUB', r: Record<string, unknown>) => {
     const rawLines = (docType === 'SUB' ? (r.materials as Record<string, unknown>[]) : (r.items as Record<string, unknown>[])) || [];
     const mappedItems = rawLines.map((l) => {
-      const qty = Number(l.accepted_qty ?? l.received_qty ?? l.issued_qty ?? l.qty ?? 0);
+      const qty = docType === 'PO'
+        ? Number(l.qty ?? 0)
+        : Number(l.accepted_qty ?? l.received_qty ?? l.issued_qty ?? l.qty ?? 0);
       const unitPrice = Number(l.rate ?? l.unit_price ?? l.estimated_rate ?? l.unit_cost ?? 0);
       const vatPct = Number(l.vat_rate ?? (docType === 'PO' || docType === 'SQ' || docType === 'PI' ? 5 : 0));
       const vatAmt = Number(l.vat_amount ?? 0);
@@ -974,7 +976,9 @@ export function ProcurementView() {
           : ((rec.items as Record<string, unknown>[]) || []);
 
       const viewerItems: ErpViewerItemLine[] = rawLines.map((l) => {
-        const qty = Number(l.accepted_qty ?? l.received_qty ?? l.issued_qty ?? l.qty ?? 0);
+        const qty = viewingDoc.type === 'po'
+          ? Number(l.qty ?? 0)
+          : Number(l.accepted_qty ?? l.received_qty ?? l.issued_qty ?? l.qty ?? 0);
         const rate = Number(l.rate ?? l.unit_price ?? l.estimated_rate ?? l.unit_cost ?? 0);
         const vatPct = Number(l.vat_rate ?? (['po', 'sq', 'pi', 'prn'].includes(viewingDoc.type) ? 5 : 0));
         const vatAmt = Number(l.vat_amount ?? 0);
