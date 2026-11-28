@@ -2,14 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
 import { Router } from 'express';
-import { DB_FILE_PATH, getDb, resetDbConnection, withTransaction } from '../db.ts';
+import { DB_FILE_PATH, getDb, resetDbConnection, USE_POSTGRES, withTransaction } from '../db.ts';
 import { authenticate, recordAuditLog, requirePermission, type AuthRequest } from '../middleware/auth.ts';
 import { nowISO, roundMoney, safeResolveWithin, todayISO } from '../utils/helpers.ts';
 import { postVoucherInternal } from './accounting.ts';
 
-const UPLOAD_DIR = path.resolve(process.cwd(), process.env.UPLOAD_DIR || './uploads');
-const BACKUP_DIR = path.resolve(process.cwd(), process.env.BACKUP_DIR || './backups');
-const MAX_UPLOAD_BYTES = (Number(process.env.MAX_UPLOAD_MB) || 25) * 1024 * 1024;
+const UPLOAD_DIR = path.resolve(process.cwd(), process.env.UPLOAD_DIR || (process.env.VERCEL ? '/tmp/petroblend-uploads' : './uploads'));
+const BACKUP_DIR = path.resolve(process.cwd(), process.env.BACKUP_DIR || (process.env.VERCEL ? '/tmp/petroblend-backups' : './backups'));
+const MAX_UPLOAD_BYTES = (Number(process.env.MAX_UPLOAD_MB) || (process.env.VERCEL ? 4 : 25)) * 1024 * 1024;
 
 const ALLOWED_MIME = new Set([
   'application/pdf',
@@ -24,16 +24,7 @@ const ALLOWED_MIME = new Set([
 ]);
 
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-      cb(null, UPLOAD_DIR);
-    },
-    filename: (_req, file, cb) => {
-      const safeOrig = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-      cb(null, `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safeOrig}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: MAX_UPLOAD_BYTES },
   fileFilter: (_req, file, cb) => {
     if (ALLOWED_MIME.has(file.mimetype)) cb(null, true);
@@ -505,6 +496,7 @@ router.post('/attachments/upload', upload.single('file'), (req: AuthRequest, res
     res.status(400).json({ error: 'No file uploaded' });
     return;
   }
+  const storedName = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
   const { doc_type, doc_id } = req.body as { doc_type?: string; doc_id?: string };
   if (!doc_type || !doc_id) {
     res.status(400).json({ error: 'doc_type and doc_id are required' });
@@ -512,18 +504,24 @@ router.post('/attachments/upload', upload.single('file'), (req: AuthRequest, res
   }
   const db = getDb();
   const r = db
-    .prepare('INSERT INTO attachments (doc_type, doc_id, file_name, stored_name, mime_type, size_bytes, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(doc_type, Number(doc_id), req.file.originalname, req.file.filename, req.file.mimetype, req.file.size, req.user!.id, nowISO());
+    .prepare('INSERT INTO attachments (doc_type, doc_id, file_name, stored_name, mime_type, size_bytes, data_blob, uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(doc_type, Number(doc_id), req.file.originalname, storedName, req.file.mimetype, req.file.size, req.file.buffer, req.user!.id, nowISO());
   recordAuditLog(db, req.user, doc_type, Number(doc_id), `${doc_type}-${doc_id}`, 'Upload Attachment', { file: req.file.originalname });
   res.status(201).json({ id: r.lastInsertRowid, file_name: req.file.originalname });
 });
 
 router.get('/attachments/:id/download', (req, res) => {
   const att = getDb().prepare('SELECT * FROM attachments WHERE id = ?').get(Number(req.params.id)) as
-    | { file_name: string; stored_name: string; mime_type: string }
+    | { file_name: string; stored_name: string; mime_type: string; data_blob?: Buffer | null }
     | undefined;
   if (!att) {
     res.status(404).json({ error: 'Attachment not found' });
+    return;
+  }
+  if (att.data_blob) {
+    res.setHeader('Content-Type', att.mime_type);
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(att.file_name)}`);
+    res.send(att.data_blob);
     return;
   }
   const filePath = safeResolveWithin(UPLOAD_DIR, att.stored_name);
@@ -543,7 +541,7 @@ router.get('/settings', requirePermission('settings', 'can_view'), (_req, res) =
     sequences: db.prepare('SELECT * FROM document_sequences ORDER BY doc_type').all(),
     migrations: db.prepare('SELECT * FROM schema_migrations ORDER BY applied_at DESC').all(),
     financialPeriods: db.prepare('SELECT * FROM financial_periods ORDER BY id DESC').all(),
-    dbEngine: (process.env.DATABASE_URL || 'sqlite:///./data/lubricants_erp.db').startsWith('postgresql') ? 'PostgreSQL' : 'SQLite (Local)',
+    dbEngine: USE_POSTGRES ? 'PostgreSQL (Firebase SQL Connect)' : 'SQLite (Local)',
     dbPath: 'Configured on server',
   });
 });
@@ -574,6 +572,10 @@ router.get('/backups', requirePermission('settings', 'can_view'), (_req, res) =>
 
 router.post('/backups/create', requirePermission('settings', 'can_create'), async (req: AuthRequest, res) => {
   try {
+    if (USE_POSTGRES) {
+      res.status(501).json({ error: 'Use Firebase SQL Connect database backups for the hosted PostgreSQL database.' });
+      return;
+    }
     fs.mkdirSync(BACKUP_DIR, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const fileName = `lubricants_erp_backup_${stamp}.db`;
@@ -606,6 +608,10 @@ router.get('/backups/:id/download', requirePermission('settings', 'can_export'),
 });
 
 router.post('/backups/:id/restore', requirePermission('settings', 'can_edit'), async (req: AuthRequest, res) => {
+  if (USE_POSTGRES) {
+    res.status(501).json({ error: 'Restore the hosted PostgreSQL database through Firebase SQL Connect database management.' });
+    return;
+  }
   if (req.user!.role_name !== 'Super Admin') {
     res.status(403).json({ error: 'Only Super Admin can restore database backups' });
     return;

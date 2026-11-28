@@ -5,21 +5,23 @@ Enterprise Lubricants Manufacturing, Blending, Packaging, Procurement, Inventory
 ## Quick Start
 ```bash
 cp .env.example .env
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
-On Windows, double-click `start.bat`. Open `http://localhost:3000`.
+On Windows, double-click `start.bat`. Open `http://localhost:3000` and create the first Super Admin account.
 
 ## Running Automated End-to-End Business Tests
 ```bash
-npm run test:erp
+pnpm test:erp
 ```
 
 ## Architecture
 - **Frontend**: React 19 + TypeScript + Tailwind CSS + Recharts + SheetJS (`xlsx`) + `jsPDF`
-- **Live Server & API**: Express + TypeScript (`server.ts`, `server/`) with `better-sqlite3` WAL persistence (`./data/lubricants_erp.db`)
+- **Local Server & API**: Express + TypeScript (`server.ts`, `server/`) with `better-sqlite3` WAL persistence (`./data/lubricants_erp.db`)
+- **Hosted Server & API**: Vercel Node.js functions with the same Express routes; PostgreSQL storage through Neon for testing or another compatible PostgreSQL server
 - **Python FastAPI / SQLAlchemy / Alembic prototype**: `backend/` + `scripts/migrate_sqlite_to_postgres.py`; this is a partial mirror, not a replacement for the Express API
 - **Documentation**: `docs/DEPLOYMENT_AND_MIGRATION.md`
 
 ## Hosting and Database Notes
-The included `vercel.json` builds the Vite frontend only. The current Express API uses SQLite and local disk uploads, so it is not ready to run as a Vercel serverless API or as a multi-user live ERP. The current Python/PostgreSQL code is a partial prototype. Firebase SQL Connect/PostgreSQL is not a drop-in `DATABASE_URL` change. See [`docs/VERCEL_AND_DATABASE_OPTIONS.md`](docs/VERCEL_AND_DATABASE_OPTIONS.md) before deploying.
+For a hosted test environment, use Neon PostgreSQL with `DB_ADAPTER=postgres`, a private pooled `DATABASE_URL`, and a stable `JWT_SECRET` in Vercel. The same adapter can later use a compatible company PostgreSQL server by replacing the private URL. Attachments and company logos are stored in PostgreSQL; hosted database backups are managed by the provider. See [`docs/VERCEL_AND_DATABASE_OPTIONS.md`](docs/VERCEL_AND_DATABASE_OPTIONS.md) for setup and verification steps.
+

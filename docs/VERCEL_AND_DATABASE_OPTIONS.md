@@ -1,35 +1,54 @@
-# Vercel, Firebase SQL Connect, and database switching
+# Vercel and Neon test database setup
 
-## Current state
+## Current setup
 
-- GitHub repository: [`MohdTauheed05/ERP`](https://github.com/MohdTauheed05/ERP), branch `main`.
-- Firebase test project: `petroblend-erp-test` (Spark plan).
-- Vercel can build the Vite frontend from the repository root using `vercel.json`.
-- The Express API in `server.ts` uses synchronous `better-sqlite3`, initializes a local SQLite file, and writes uploads to the local filesystem. It cannot currently use PostgreSQL or Firebase SQL Connect. The Python FastAPI/PostgreSQL code is only a partial mirror, not the complete ERP API.
-- `DATABASE_URL` currently accepts `sqlite:///...` only. A PostgreSQL URL now fails at startup instead of silently creating/using a different local SQLite database.
+- GitHub repository: [`MohdTauheed05/ERP`](https://github.com/MohdTauheed05/ERP).
+- Vercel project: `erp` under team `tauheed1`.
+- Frontend: React/Vite static build on Vercel.
+- API: Express routes exposed through Vercel Node functions.
+- Database adapter: local SQLite for development; PostgreSQL for hosted use. The PostgreSQL adapter translates the existing synchronous SQLite-style calls and initializes the ERP schema on first connection.
+- Uploads: hosted attachments and logos are stored in PostgreSQL so Vercel's temporary filesystem is not used for durable files.
 
-## Firebase SQL Connect Spark limitation
+## Neon test database
 
-The Firebase console project is on Spark ($0/month), but its SQL Connect setup flow reports that its single no-cost Cloud SQL trial has already been initiated. Do not switch to Blaze simply to get past that screen unless paid billing has been explicitly planned. If SQL Connect becomes available in a fresh eligible project, Firebase documents the Spark trial as 90 days, one database per project, about 8,000 operations/day and 330 MiB/day egress; the instance is archived after the trial unless the project is upgraded. See [Firebase SQL Connect pricing](https://firebase.google.com/docs/sql-connect/pricing).
+Use the account owner's Neon login to create a free PostgreSQL project for testing. The current test database is in AWS US East 2 (Ohio). This Vercel Hobby project is kept in its known-working `iad1` function region. The Neon free plan currently includes up to 1 GB of database storage per project; compute is limited, and inactive compute can scale to zero. This is suitable for a test environment, not a promise of always-on production service. Review Neon’s current [free plan limits](https://neon.com/pricing) before using the project.
 
-Firestore is a separate NoSQL product and does not make the existing relational Express API compatible without a significant rewrite.
+In the Neon dashboard, create a database and copy its **pooled** connection string. Add these Vercel environment variables to **Preview** first (and Production only if intentionally testing on the public production URL):
 
-## Vercel deployment
+```text
+DB_ADAPTER=postgres
+DATABASE_URL=<Neon's pooled PostgreSQL connection string>
+JWT_SECRET=<long random secret>
+```
 
-Vercel's Git import screen recognizes this repository as Vite and defaults to the repository root (`./`). A frontend build/deployment alone is not a live ERP: API login, business operations, persistence, and uploads require a working backend. Do not add the API URL as `VITE_API_BASE_URL` until the API is deployed to a durable host and its exact HTTPS origin is known. Never put database URLs, Firebase Admin credentials, or JWT secrets in a `VITE_` variable.
+Keep these as server-side variables. Do not use a `VITE_` prefix, commit the URL, or paste it into chat. Enable `sslmode=require` if it is not already part of Neon’s generated URL. `DATABASE_URL` must use the `postgresql://` scheme. The schema and seed/reference rows are created automatically the first time the API connects. Then check `/api/health`; it must return `database: connected` before creating the first Super Admin.
 
-For a production deployment, the frontend and API may be hosted separately:
+### Testing sequence
 
-1. Deploy the frontend from this repository root on Vercel.
-2. Deploy the complete Express API to a persistent Node.js host, with durable PostgreSQL and object storage for uploads.
-3. Configure the API host's `JWT_SECRET`, `DATABASE_URL`, `UPLOAD_DIR` or storage provider, `BACKUP_DIR`, `PORT`, and exact `CORS_ORIGINS` as private environment settings.
-4. Set `VITE_API_BASE_URL` in Vercel to the API's HTTPS origin, then redeploy the frontend.
-5. Verify health, first-admin setup, login, CRUD workflows, uploads/downloads, accounting totals, and backup/restore before using real company data.
+1. Confirm the deployment has `DB_ADAPTER=postgres`, `DATABASE_URL`, and `JWT_SECRET` in the selected Vercel environment.
+2. Redeploy that environment so the function reads the new settings.
+3. Open `/api/health`; confirm the response reports `database: connected`.
+4. Open `/api/auth/status`; for a new empty database it should report that first-run setup is needed.
+5. Create the test Super Admin and check login, masters, procurement, inventory, manufacturing, quality, sales, accounting, imports, attachments, and audit logs.
+6. Test on Preview first. Keep production on its existing state until the Preview checks pass.
 
-## Keep future database changes simple
+The database is separate from the existing Firebase project. No Firebase or Cloud SQL IAM grants are needed for Neon.
 
-The intended application-facing interface should be a small database adapter selected from server-side configuration, with one migration set and a common test suite. A future PostgreSQL move should use a standard `DATABASE_URL=postgresql://...` and a PostgreSQL adapter so a company-hosted PostgreSQL server can be selected by changing private server configuration and running migrations.
+## Local Windows development
 
-That adapter is not implemented yet. The current API has hundreds of synchronous SQLite queries and SQLite-specific schema/backup code; a safe PostgreSQL or Firebase SQL Connect migration requires converting those calls and verifying all ERP workflows. Firebase SQL Connect also uses its generated SQL Connect operation model rather than acting as a transparent replacement for `better-sqlite3`. Do not point the current API at a PostgreSQL URL and assume it has migrated.
+Leave the default local setting in `.env` as `DATABASE_URL=sqlite:///./data/lubricants_erp.db` for a quick offline start. To point a local run at Neon, set `DB_ADAPTER=postgres` and Neon’s pooled `DATABASE_URL` in the private `.env` file. Never commit `.env`.
 
-Uploads and database backups must move to storage with durable retention when the API leaves the local machine. Vercel function filesystems are ephemeral and cannot serve as the ERP's durable database or upload store.
+## Deploy and verify
+
+The Vercel project builds the frontend and routes `/api/*` requests into the Express API. Set the API variables in Vercel project settings, redeploy, then verify the health and first-admin endpoints above. Do not mark the live ERP as database-ready until those endpoints and the business workflow checks have passed against Neon.
+
+For hosted PostgreSQL, SQLite file backup and restore endpoints are unavailable. Use Neon’s dashboard backup/restore tools and keep test data disposable. Attachments stored in PostgreSQL count toward the same database storage limit.
+
+## Future company database
+
+For a compatible PostgreSQL server later, keep `DB_ADAPTER=postgres` and replace only the private server-side `DATABASE_URL` with that server's TLS-enabled connection string. Never point the API at a company database before confirming PostgreSQL compatibility and taking a backup.
+
+## Previous Firebase SQL Connect route
+
+Firebase SQL Connect and its Cloud SQL trial are not required for this Neon test setup. The older Firebase integration branch and its setup instructions should not be used for this path. Firebase trial limits and end dates are independent of the Neon database.
+

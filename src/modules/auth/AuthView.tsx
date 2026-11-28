@@ -70,7 +70,7 @@ export function AuthView({ needsSetup, companyName, onAuthenticated }: AuthViewP
             </p>
           </div>
           <div className="pt-8 border-t border-slate-800 space-y-2 text-xs text-slate-400">
-            <p>SQLite Local Engine · PostgreSQL Server Ready</p>
+            <p>Secure ERP database · Role-based access control</p>
             <p>Double-Entry GL · UAE 5% VAT · Batch Genealogy</p>
           </div>
         </div>

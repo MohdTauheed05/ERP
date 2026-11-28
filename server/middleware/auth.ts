@@ -10,7 +10,9 @@ const EPHEMERAL_SECRET = crypto.randomBytes(32).toString('hex');
 export function getJwtSecret(): string {
   return process.env.JWT_SECRET && process.env.JWT_SECRET.trim().length > 0
     ? process.env.JWT_SECRET
-    : EPHEMERAL_SECRET;
+    : process.env.NODE_ENV === 'production'
+      ? (() => { throw new Error('JWT_SECRET must be set in the production environment.'); })()
+      : EPHEMERAL_SECRET;
 }
 
 export interface AuthUser {

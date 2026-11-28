@@ -1128,8 +1128,8 @@ async function runTests() {
     assert.equal(newPoRecord?.status, 'Draft');
     assert.equal(newPoRecord?.amended_from, revPo.po_number);
 
-    const poLinks = await api<{ upstream: { relationship: string; doc_number: string }[] }>(`/api/system/links/PurchaseOrder/${revisedPo.id}`);
-    assert.ok(poLinks.upstream.some((l) => l.relationship === 'Amended From' && l.doc_number === revPo.po_number));
+    const poLinks = await api<{ links: { relation: string; docNumber: string }[] }>(`/api/system/links/PurchaseOrder/${revisedPo.id}`);
+    assert.ok(poLinks.links.some((l) => l.relation === 'Amended From' && l.docNumber === revPo.po_number));
 
     // Revising original PO from TEST 1 (which already has submitted GRN) must fail with 400
     await api(`/api/procurement/purchase-orders/${po.id}/revise`, {

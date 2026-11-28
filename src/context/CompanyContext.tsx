@@ -8,6 +8,7 @@ interface CompanyContextValue {
   logoVersion: number;
   needsSetup: boolean;
   bootLoaded: boolean;
+  bootError: string | null;
   setNeedsSetup: (val: boolean) => void;
   refreshCompany: () => Promise<void>;
 }
@@ -35,6 +36,7 @@ const CompanyContext = createContext<CompanyContextValue>({
   logoVersion: 0,
   needsSetup: false,
   bootLoaded: false,
+  bootError: null,
   setNeedsSetup: () => {},
   refreshCompany: async () => {},
 });
@@ -44,10 +46,12 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const [logoVersion, setLogoVersion] = useState(0);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [bootLoaded, setBootLoaded] = useState(false);
+  const [bootError, setBootError] = useState<string | null>(null);
 
   const refreshCompany = useCallback(async () => {
     try {
       const res = await apiRequest<{ needsSetup: boolean; company: CompanyProfile | null }>('/api/auth/status');
+      setBootError(null);
       setNeedsSetup(res.needsSetup);
       if (res.company) {
         setCompany(res.company);
@@ -56,8 +60,8 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
         }
       }
       setLogoVersion((v) => v + 1);
-    } catch {
-      // ignore transient boot error
+    } catch (err) {
+      setBootError(err instanceof Error ? err.message : 'Could not connect to the ERP server.');
     } finally {
       setBootLoaded(true);
     }
@@ -70,7 +74,7 @@ export function CompanyProvider({ children }: { children: React.ReactNode }) {
   const logoUrl = company.logo_path ? apiUrl(`/api/auth/logo?v=${encodeURIComponent(company.logo_path)}&r=${logoVersion}`) : '';
 
   return (
-    <CompanyContext.Provider value={{ company, logoUrl, logoVersion, needsSetup, bootLoaded, setNeedsSetup, refreshCompany }}>
+    <CompanyContext.Provider value={{ company, logoUrl, logoVersion, needsSetup, bootLoaded, bootError, setNeedsSetup, refreshCompany }}>
       {children}
     </CompanyContext.Provider>
   );
